@@ -85,7 +85,23 @@ class MediaKitPlayer extends AudioPlayerPlatform {
       }),
       _player.stream.buffering.listen((isBuffering) {
         final start = _currentMedia?.start;
-        if (!isBuffering && start != null && _bufferedPosition <= start) {
+        // Outside `loading`, "has the buffer passed `start`" is measured with
+        // media_kit's last-reported `demuxer-cache-time`, not
+        // `_bufferedPosition`. The `completed` and `playlist` listeners zero
+        // `_bufferedPosition` at every handover and seek to an index, but
+        // libmpv only notifies an observed property when its value changes:
+        // with prefetch it goes straight from the old item's cache time to
+        // the new item's, and when the two are equal no `buffer` event
+        // follows at all. The final `buffering: false` was then dropped here
+        // and never revisited, so a clipped item stayed `buffering` until
+        // its end. During `loading` the check is unchanged (media_kit's
+        // `open()` resets `state.buffer` to zero there anyway), and the
+        // `stream.buffer` listener below still covers "the buffer arrives
+        // last".
+        final buffered = _processingState == ProcessingStateMessage.loading
+            ? _bufferedPosition
+            : _player.state.buffer;
+        if (!isBuffering && start != null && buffered <= start) {
           // Not ready yet, will be triggered by _player.stream.buffer
           return;
         }
